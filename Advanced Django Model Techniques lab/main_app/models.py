@@ -1,89 +1,72 @@
-from datetime import date
-
 from django.core.exceptions import ValidationError
+from django.core.validators import MinLengthValidator, MaxLengthValidator, MinValueValidator, MaxValueValidator
 from django.db import models
 
-# Create your models her
-
-SPECIALTY_CHOICES = (
-        ("Mammals", "Mammals"),
-        ("Birds", "Birds"),
-        ("Reptiles", "Reptiles"),
-        ("Others", "Others")
-    )
-
-class BooleanChoiceField(models.BooleanField):
-    def __init__(self, *args, **kwargs):
-        kwargs['choices'] = ((True, 'Available'),
-                             (False, 'Not Available'))
-
-        kwargs['default'] = True
-        super().__init__(*args, **kwargs)
-class Animal(models.Model):
-    name = models.CharField(max_length=100)
-    species = models.CharField(max_length=100)
-    birth_date = models.DateField()
-    sound = models.CharField(max_length=100)
-
-    @property
-    def age(self):
-        today = date.today()
-        age = today.year - self.birth_date.year - ((today.month, today.day) < (self.birth_date.month, self.birth_date.day))
-        return age
-class Mammal(Animal):
-    fur_color = models.CharField(max_length=50)
-
-class Bird(Animal):
-    wing_span = models.DecimalField(max_digits=5, decimal_places=2)
+from main_app.validators import validate_menu_categories
 
 
-class Reptile(Animal):
-    scale_type = models.CharField(max_length=50)
+# Create you
+# r models here.
 
-class Employee(models.Model):
-    first_name = models.CharField(max_length=50)
-    last_name = models.CharField(max_length=50)
-    phone_number = models.CharField(max_length=10)
+class ReviewMixin(models.Model):
+    reviewer_name = models.CharField(max_length=100)
+    review_content = models.TextField()
+    rating = models.PositiveIntegerField(validators=[MaxValueValidator(5)])
 
     class Meta:
         abstract = True
+        ordering = ["-rating"]
 
-class ZooKeeper(Employee):
 
-    specialty = models.CharField(max_length=10, choices=SPECIALTY_CHOICES)
-    managed_animals = models.ManyToManyField(Animal)
-    def clean(self):
-        super().clean()
+class Restaurant(models.Model):
+    name = models.CharField(
+        max_length=100,
+        validators=[MinLengthValidator(2, message="Name must be at least 2 characters long."),
+                    MaxLengthValidator(100, message="Name cannot exceed 100 characters.")])
+    location = models.CharField(
+        max_length=100,
+        validators=[
+            MinLengthValidator(2, message="Location must be at least 2 characters long."),
+            MaxLengthValidator(200, message="Location cannot exceed 100 characters.")])
+    description = models.TextField(null=True, blank=True)
+    rating = models.DecimalField(
+        max_digits=3,
+        decimal_places=2,
+        validators=[
+            MinValueValidator(0, message="Rating must be at least 0.00."),
+            MaxValueValidator(5, message="Rating cannot exceed 5.00.")])
 
-        choices = [choice[0] for choice in SPECIALTY_CHOICES]
-        if self.specialty not in choices:
-            raise ValidationError("Specialty must be a valid choice.")
+class Menu(models.Model):
+    name = models.CharField(max_length=100)
+    description = models.TextField(validators=[validate_menu_categories])
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE)
 
-class Veterinarian(Employee):
-    license_number = models.CharField(max_length=10)
-    availability = BooleanChoiceField()
+class RestaurantReview(ReviewMixin, models.Model):
+    restaurant = models.ForeignKey(Restaurant, on_delete=models.CASCADE)
 
-    def is_available(self):
-        return self.availability
-class ZooDisplayAnimal(Animal):
-    def __extra_info(self):
-        extra_info = ''
-        if hasattr(self, 'mammal'):
-            extra_info = f"Its fur color is {self.mammal.fur_color}."
-        if hasattr(self, 'bird'):
-            extra_info = f"Its wingspan is {self.bird.wing_span} cm."
-        if hasattr(self, 'reptiles'):
-            extra_info = f"Its scale type is {self.reptiles.scale_type}."
-        return extra_info
+    class Meta(ReviewMixin.Meta):
+        verbose_name = "Restaurant Review"
+        verbose_name_plural = "Restaurant Reviews"
+        unique_together = ["reviewer_name", "restaurant"]
+        abstract = True
 
-    def display_info(self):
-        return \
-            (f"Meet {self.name}! It's {self.species} and it's born {self.birth_date}. "
-             f"It makes a noise like '{self.sound}'!{self.__extra_info()}")
 
-    def is_endangered(self):
-        return True if self.species in ["Cross River Gorilla", "Orangutan", "Green Turtle"] else False
+class RegularRestaurantReview(RestaurantReview):
+    pass
 
-    class Meta:
-        proxy = True
+class FoodCriticRestaurantReview(RestaurantReview):
+    food_critic_cuisine_area = models.CharField()
 
+    class Meta(RestaurantReview.Meta):
+        verbose_name = "Food Critic Review"
+        verbose_name_plural = "Food Critic Reviews"
+
+
+class MenuReview(ReviewMixin, models.Model):
+    menu = models.ForeignKey(Menu, on_delete=models.CASCADE)
+
+    class Meta(ReviewMixin.Meta):
+        verbose_name = "Menu Review"
+        verbose_name_plural = "Menu Reviews"
+        unique_together = ["reviewer_name", "menu"]
+        indexes = [models.Index(fields=["menu"], name="main_app_menu_review_menu_id")]
